@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Typing Race</title>
+<style>
+  :root { --bg: #11152a; --ink: #eef1fa; --dim: #9aa3c2; --paper: #f8f4ea; --text: #20263a; --ok: #1fa463; --bad: #ff4d6d; --gold: #ffd23f; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { background: radial-gradient(900px 500px at 50% -20%, #2a3570, transparent 70%), var(--bg); color: var(--ink);
+         font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+  [hidden] { display: none !important; }
+  #app { height: 100%; height: 100dvh; display: flex; flex-direction: column; gap: 10px; max-width: 920px; margin: 0 auto; box-sizing: border-box;
+         padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  header { display: flex; align-items: baseline; gap: 12px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .02em; }
+  #status { margin-left: auto; font-weight: 700; color: var(--gold); text-align: right; }
+  #track { width: 100%; display: block; border-radius: 14px; touch-action: none; }
+  #card { position: relative; background: var(--paper); color: var(--text); border-radius: 14px; padding: 14px 16px; box-shadow: 0 6px 0 #0004; }
+  #text { font: 500 clamp(17px, 2.6vw, 22px)/1.55 ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; max-height: 4.65em; overflow: hidden; white-space: pre-wrap; word-break: normal; }
+  #text .done { color: var(--ok); }
+  #text .word { font-weight: 800; }
+  #text .cur { background: var(--gold); border-radius: 3px; }
+  #text .cur.bad { background: var(--bad); color: #fff; }
+  #text.wait { opacity: .45; }
+  #type { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; border: 0; padding: 0; caret-color: transparent; cursor: text; }
+  #tap { position: absolute; right: 10px; bottom: 8px; font-size: 12px; font-weight: 700; color: #fff; background: var(--bad); padding: 4px 9px; border-radius: 999px; pointer-events: none; }
+  #stats { display: flex; gap: 18px; justify-content: center; font-weight: 800; font-size: 18px; }
+  #stats span { color: var(--dim); font-weight: 600; font-size: 13px; margin-left: 4px; }
+  #net { margin-top: auto; text-align: center; font-size: 12px; color: var(--dim); }
+  #count { position: fixed; left: 0; right: 0; top: max(46px, 8%); text-align: center; pointer-events: none; font: 900 min(24vw, 150px)/1 system-ui, sans-serif; color: var(--gold); -webkit-text-stroke: 4px #3a2a00; text-shadow: 0 6px 0 #0005; }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #0b0e1cb0; }
+  .card { width: min(380px, 90vw); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 16px; background: #1b2140; border: 1px solid #ffffff2a; text-align: center; }
+  .card h2 { margin: 0 0 8px; font-size: 24px; }
+  .card h3 { margin: 14px 0 4px; font-size: 14px; color: var(--gold); text-align: left; }
+  .card ol { margin: 0; padding-left: 24px; font-size: 14px; text-align: left; }
+  .card li span { float: right; font-variant-numeric: tabular-nums; }
+  .card li.me { color: var(--gold); font-weight: 700; }
+  .card p { margin: 10px 0 0; font-size: 13px; opacity: .8; }
+  button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: var(--ok); color: #fff; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+</head>
+<body>
+<div id="app">
+  <header><h1>Typing Race</h1><span id="status">Connecting…</span></header>
+  <canvas id="track"></canvas>
+  <div id="card"><div id="text"></div><input id="type" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next" aria-label="Type the passage"><div id="tap" hidden>Tap here to type</div></div>
+  <div id="stats"></div>
+  <div id="net"></div>
+</div>
+<div id="count"></div>
+<div id="over" hidden><div class="card">
+  <h2 id="winner"></h2><ol id="results"></ol>
+  <h3>Best words per minute</h3><ol id="board"><li>Loading…</li></ol>
+  <button class="go" id="again">Play again</button><p id="next"></p>
+</div></div>
+<script>
+/* ═══ TYPING RACE · a Multiplayer Agent starter ════════════════════════════════════════
+ * Type the passage. Your car moves as you type. Versus, 2–8 players; bots fill empty seats.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ race timing, seats, bot speeds, and the PASSAGES (add your own)
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   RACE (HOST) ... the phases (count, race, done), the passage pick, results, the bots.
+ *                   Only the host writes these.
+ *   MY TYPING ..... checking each key, progress, words per minute. Each player writes only its own.
+ *   DRAW .......... the track with a car per racer, the passage with your cursor
+ *   HUD & RESULTS . status, countdown, results card, leaderboard
+ *   INPUT ......... a hidden text box that keeps focus, so phones show their keyboard
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - The race lives in ONE shared field, `race`: {id, v, phase, seed, startAt, endsAt, res}.
+ *     Only the HOST writes it; `v` goes up on every write. The passage is
+ *     CONFIG.passages[mulberry32(seed)], so everyone types the same one.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s),
+ *     worked out every frame. It runs the countdown, flips the race to GO, ends it when every
+ *     racer is done (or time runs out) and writes the results. It also writes `bots`: each
+ *     bot's progress. A new host adopts both from state and carries on.
+ *   - Each player writes its OWN entity: `t` {r, p, f, w, a} (race id, letters done,
+ *     finish time, words per minute, accuracy) a few times a second as it types, `hb`
+ *     (heartbeat) once a second, `rdy` (Play again), and `n`/`c` (name, color) once.
+ *   - Someone who arrives mid-race jumps in at the start line; their time starts when they arrive,
+ *     and the results rank finishers by their own time.
+ *   - ?attract plays offline: your car types itself against bots (the preview video).
+ *   - Leaderboard "best-wpm": your best words per minute, sent when you finish.
+ */
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 5,             // bots fill the race up to this many cars
+  countdown: 5000,      // ms of countdown (you can read the passage meanwhile)
+  raceMs: 120000,       // longest a race can last
+  afterFirst: 25000,    // ms the others get once the first player finishes
+  resultsMs: 10000,     // ms on the results card before the next race
+  botWpm: [28, 80],     // slowest and fastest bot, words per minute
+  botMistakes: 0.04,    // chance a bot hits a wrong key on each letter (it stops to fix it)
+  sendMs: 120,          // how often your progress goes out while you type
+  board: "best-wpm",
+  // Everyone types the same one, picked from the race seed. Plain keyboard characters only.
+  passages: [
+    "The quick brown fox jumps over the lazy dog, then takes a long nap in the sun. Jumping over dogs all day is hard work, after all.",
+    "A good cup of tea is like a warm hug for your hands. Sip it slowly, watch the steam curl up, and let the rest of the world wait.",
+    "Octopuses have three hearts and blue blood. They can taste with their arms and squeeze through any gap bigger than their beak.",
+    "The moon drifts about four centimeters farther from Earth every year. In about 600 million years, total eclipses will be gone for good.",
+    "Honey never spoils. Jars found in ancient tombs were still good to eat after thousands of years, sealed tight and kept dry.",
+    "Every great game starts with a small idea. Make it work, make it fun, then make it pretty. Most people try it the other way around.",
+    "Bananas are berries, but strawberries are not. Botany has its own rules, and they rarely match what you find in the fruit aisle.",
+    "In 1947, engineers found a real moth stuck inside their computer. They taped it into the logbook as the first actual bug ever found.",
+    "On a clear night far from city lights, you can see a few thousand stars with your bare eyes. Billions more are hiding in plain sight.",
+    "Sharks were swimming in the oceans long before trees grew on land. They have outlived the dinosaurs and several mass extinctions.",
+    "A day on Venus is longer than its year. The planet spins so slowly that the sun rises in the west and takes months to set again.",
+    "Practice does not make perfect. Practice makes progress, and progress is what brings you back to the keyboard tomorrow.",
+    "The first hot air balloon passengers were a sheep, a duck and a rooster. All three landed safely, if a little confused.",
+    "The Eiffel Tower grows about fifteen centimeters taller in summer, because the iron expands in the heat and shrinks in the cold.",
+    "Cats spend about two thirds of their lives asleep. The other third is mostly spent knocking things off tables to watch them fall.",
+    "Lightning flashes about forty times every second around the world. Most of it never touches the ground and jumps between clouds.",
+    "Your brain burns about a fifth of your energy, even though it is only two percent of your weight. Thinking is hungry work.",
+    "Snails can sleep for up to three years when the weather is too dry. When the rain comes back, they wake up and carry on.",
+    "Typing fast is about rhythm, not rush. Keep your eyes on the words ahead, let your fingers follow, and never look down at the keys.",
+    "Penguins propose with pebbles. A male searches the beach for the smoothest stone he can find and gives it to the one he likes.",
+  ],
+};
+const BOT_NAMES = ["Tappy", "Clicky", "Qwerty", "Shifty", "Speedy", "Keysha", "Typo"];
+const COLORS = ["#ff4d6d", "#3fa7ff", "#ffd23f", "#4ee08a", "#b26bff", "#ff8c42", "#ff6fd8", "#3fe0c5"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'typing-race',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const memo = new Map();
+/** A JSON field, parsed once per change (read-only: never mutate what this returns). */
+function cached(key, raw, fb) { const m = memo.get(key); if (m && m.raw === raw) return m.v; const v = parse(raw, fb); memo.set(key, { raw, v }); return v; }
+let net = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+const humans = () => livePlayers(); // (in ?attract your own car races too, typed by the autopilot)
+
+// ── RACE (HOST) ─────────────────────────────────────────────────────────────────────
+const host = { last: null, wasHost: false, bots: [], raceId: 0, lastBots: 0 };
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+/** The race's passage: the same for everyone with the same seed. */
+const passageOf = (r) => CONFIG.passages[Math.floor(mulberry32(r.seed)() * CONFIG.passages.length)];
+/** The race as state has it, or the host's own newer write that hasn't come back yet. `v` only goes up. */
+function race() {
+  const r = parse(S.shared.race, null);
+  return host.last && isHost() && (!r || host.last.v > r.v) ? host.last : r;
+}
+function writeRace(r) { r = { ...r, v: (race()?.v ?? 0) + 1 }; host.last = r; net.setShared("race", JSON.stringify(r)); return r; }
+const newRace = (id) => ({ id, phase: "count", seed: (Math.random() * 1e9) | 0, startAt: Date.now() + CONFIG.countdown, endsAt: 0, res: [] });
+
+/** Become host: take over the bots exactly as state has them. */
+function adopt() {
+  host.wasHost = true;
+  host.bots = parse(S.shared.bots, []).map((b) => ({ id: b.i, name: b.n, color: b.c, pos: b.p, f: b.f, wpm: b.s || 45, nextAt: performance.now(), lastW: b.w }));
+  host.raceId = race()?.id ?? 0;
+}
+/** Bots: one per empty seat, each with its own speed spread between CONFIG.botWpm. */
+function fillBots() {
+  const want = Math.max(0, CONFIG.seats - humans().length);
+  if (host.bots.length > want) host.bots.length = want;
+  const taken = new Set([...Object.values(S.entities.players || {}).map((p) => p.c), myColor]);
+  while (host.bots.length < want) {
+    const i = host.bots.length, names = new Set(host.bots.map((b) => b.name)), colors = new Set([...taken, ...host.bots.map((b) => b.color)]);
+    const [lo, hi] = CONFIG.botWpm, wpm = Math.round(lo + ((hi - lo) * (i + Math.random() * 0.8)) / Math.max(1, want));
+    host.bots.push({ id: "b" + i, name: BOT_NAMES.find((n) => !names.has(n)) || "Bot", color: COLORS.find((c) => !colors.has(c)) || "#ccc", wpm, pos: 0, f: 0, nextAt: 0 });
+  }
+}
+/** Everyone racing this race: { id, name, color, pos, f (finish ms), wpm, bot, mine }. */
+function racers(r) {
+  const out = [];
+  for (const id of livePlayers()) {
+    if (id === net.sessionId) { if (me.raceId === r.id) out.push({ id, name: myName, color: myColor, pos: me.pos, f: me.f, wpm: me.wpm, mine: true }); continue; }
+    const p = S.entities.players[id] || {}, t = cached("t:" + id, p.t, null);
+    if (t && t.r === r.id) out.push({ id, name: String(p.n || "Player"), color: p.c || "#ccc", pos: t.p, f: t.f, wpm: t.w });
+  }
+  for (const b of botList()) out.push({ id: b.i, name: b.n, color: b.c, pos: b.p, f: b.f, wpm: b.w, bot: true });
+  return out;
+}
+function botList() {
+  if (!isHost()) return cached("bots", S.shared.bots, []);
+  return host.bots.map((b) => ({ i: b.id, n: b.name, c: b.color, p: b.pos, f: b.f, w: b.lastW || 0, s: b.wpm }));
+}
+const ranked = (list) => [...list].sort((a, b) => (a.f && b.f ? a.f - b.f : a.f ? -1 : b.f ? 1 : b.pos - a.pos));
+
+function hostTick(now) {
+  if (!host.wasHost) adopt();
+  let r = race();
+  const t = Date.now();
+  if (!r) r = writeRace(newRace(1));
+  if (host.raceId !== r.id) { host.raceId = r.id; host.bots = []; } // a new race: fresh bots
+  const text = passageOf(r);
+  if (r.phase === "count") {
+    fillBots(); // seats can still change during the countdown
+    if (t >= r.startAt) { r = writeRace({ ...r, phase: "race", startAt: t, endsAt: t + CONFIG.raceMs }); host.bots.forEach((b) => (b.nextAt = now + 300 + Math.random() * 500)); }
+  } else if (r.phase === "race") {
+    for (const b of host.bots) { // a bot types one letter at a time; a mistake costs it a pause to fix
+      while (!b.f && now >= b.nextAt) {
+        if (Math.random() < CONFIG.botMistakes) { b.nextAt += 250 + Math.random() * 450; continue; }
+        b.pos++; b.nextAt += (60000 / (b.wpm * 5)) * (0.55 + Math.random() * 0.9);
+        if (b.pos >= text.length) b.f = t - r.startAt;
+      }
+      b.lastW = Math.round(b.pos / 5 / (Math.max(1000, b.f || t - r.startAt) / 60000));
+    }
+    const all = racers(r), people = all.filter((x) => !x.bot), done = people.filter((x) => x.f);
+    if (done.length && r.endsAt > t + CONFIG.afterFirst) r = writeRace({ ...r, endsAt: t + CONFIG.afterFirst });
+    const allIn = people.length ? done.length === people.length : all.filter((x) => x.f).length >= Math.min(3, all.length);
+    if (allIn || t > r.endsAt) r = writeRace({ ...r, phase: "done", endsAt: t + CONFIG.resultsMs, res: ranked(all).map((x) => [x.id, x.name.slice(0, 16), x.wpm, x.f, Math.round((100 * x.pos) / text.length)]) });
+  } else if (r.phase === "done") {
+    const people = humans(), ready = people.length && people.every((id) => (id === net.sessionId ? me.ready : (S.entities.players[id] || {}).rdy) === r.id);
+    if (t > r.endsAt || ready) r = writeRace(newRace(r.id + 1));
+  }
+  if (now - host.lastBots > 200) { host.lastBots = now; net.setShared("bots", JSON.stringify(botList())); }
+}
+
+// ── MY TYPING ───────────────────────────────────────────────────────────────────────
+let myName = "";
+try { myName = localStorage.getItem("mpa-name") || ""; } catch {}
+myName = myName || ["Swift", "Nimble", "Rapid", "Clever", "Zippy", "Steady"][Math.floor(Math.random() * 6)] + " " + ["Fingers", "Keys", "Typist", "Writer", "Thumbs"][Math.floor(Math.random() * 5)];
+let myColor = COLORS[0]; // picked on join: the first color nobody in the room has
+const me = { raceId: -1, late: false, pos: 0, f: 0, wpm: 0, keys: 0, misses: 0, bad: false, goAt: 0, lastSend: 0, lastJson: "", ready: 0, submitted: -1, auto: 0 };
+
+/** One typed character: the right one moves you on; a wrong one stops you until you type the right one. */
+function typeChar(ch) {
+  const r = race();
+  if (!r || r.phase !== "race" || me.raceId !== r.id || me.f) return;
+  const text = passageOf(r), want = text[me.pos];
+  ch = ch.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s/g, " "); // phones' smart quotes count as plain ones
+  me.keys++;
+  if (ch === want) {
+    me.pos++; me.bad = false; sfx("key");
+    if (me.pos >= text.length) { me.f = Math.round(performance.now() - me.goAt); sfx("finish"); }
+  } else { me.misses++; me.bad = true; sfx("miss"); }
+  me.wpm = wpmOf(me.pos, me.f || performance.now() - me.goAt);
+  renderText(r); publish(!!me.f);
+}
+const wpmOf = (letters, ms) => Math.round(letters / 5 / (Math.max(1000, ms) / 60000));
+const accuracy = () => (me.keys ? Math.round((100 * (me.keys - me.misses)) / me.keys) : 100);
+function publish(force) {
+  const now = performance.now(), json = JSON.stringify({ r: me.raceId, p: me.pos, f: me.f, w: me.wpm, a: accuracy() });
+  if (json === me.lastJson || (!force && now - me.lastSend < CONFIG.sendMs)) return;
+  me.lastSend = now; me.lastJson = json; net.me.set("t", json);
+}
+/** Called every frame: join the race in its countdown, start the clock at GO, keep the progress going out. */
+function myTick(r, now) {
+  if (r.phase === "count" && me.raceId !== r.id) { // a new race: line up
+    Object.assign(me, { raceId: r.id, pos: 0, f: 0, wpm: 0, keys: 0, misses: 0, bad: false, goAt: 0, late: false });
+    $("over").hidden = true; renderText(r); focusTyping();
+  }
+  if (r.phase === "race" && me.raceId !== r.id) { // arrived mid-race: jump in, on your own clock
+    Object.assign(me, { raceId: r.id, pos: 0, f: 0, wpm: 0, keys: 0, misses: 0, bad: false, goAt: 0, late: true }); $("over").hidden = true;
+  }
+  if (r.phase === "race" && me.raceId === r.id && !me.goAt) { me.goAt = now; sfx("go"); renderText(r); focusTyping(); }
+  if (r.phase === "race" && me.raceId === r.id && !me.f && me.goAt) {
+    me.wpm = wpmOf(me.pos, now - me.goAt);
+    if (ATTRACT && now > me.auto) { // the preview types by itself, mistakes and all
+      const text = passageOf(r);
+      me.auto = now + (60000 / (92 * 5)) * (0.5 + Math.random());
+      typeChar(Math.random() < 0.03 ? "x" : text[me.pos]);
+    }
+  }
+  publish(false);
+}
+
+// ── DRAW ────────────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const cv = $("track"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1, LANE = 36;
+const drawn = new Map(); // id -> the car's eased progress (0..1)
+const puffs = [];
+function drawTrack(r, dt) {
+  const list = r ? racers(r) : [], lanes = Math.max(4, list.length);
+  DPR = Math.min(2, devicePixelRatio || 1); // phones keep lanes small (their keyboard takes half the screen); desktops fill the height
+  LANE = phone ? 28 : Math.round(Math.max(26, Math.min(48, (innerHeight - 270) / lanes)));
+  const w = cv.clientWidth, h = lanes * LANE + 16;
+  if (w !== W || h !== H) { W = w; H = h; cv.width = W * DPR; cv.height = H * DPR; cv.style.height = H + "px"; }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = "#2a3150"; ctx.fillRect(0, 0, W, H);
+  const x0 = Math.min(150, W * 0.27), x1 = W - 34, text = r ? passageOf(r) : "x";
+  for (let i = 0; i < lanes; i++) { // asphalt lanes with dashed dividers
+    const y = 8 + i * LANE;
+    ctx.fillStyle = i % 2 ? "#323a5c" : "#2e3656"; ctx.fillRect(0, y, W, LANE);
+    ctx.strokeStyle = "#ffffff26"; ctx.setLineDash([12, 10]); ctx.lineDashOffset = -performance.now() / 40; ctx.beginPath(); ctx.moveTo(x0, y + LANE); ctx.lineTo(x1, y + LANE); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for (let y = 8, k = 0; y < 8 + lanes * LANE; y += 6, k++) { ctx.fillStyle = k % 2 ? "#111" : "#fff"; ctx.fillRect(x1, y, 6, 6); ctx.fillStyle = k % 2 ? "#fff" : "#111"; ctx.fillRect(x1 + 6, y, 6, 6); } // finish line
+  const order = ranked(list);
+  list.forEach((x, i) => {
+    const y = 8 + i * LANE + LANE / 2, goal = Math.min(1, x.pos / text.length);
+    let e = drawn.get(x.id) ?? goal; e = goal < e - 0.05 ? goal : e + (goal - e) * Math.min(1, dt * 10); drawn.set(x.id, e); // a new race: back to the line at once
+    const cx = x0 + 26 * (LANE / 38) + (x1 - x0 - 56 * (LANE / 38)) * e;
+    if (goal < 1 && goal - e > 0.002 && Math.random() < 0.5) puffs.push({ x: cx - 16, y: y + (Math.random() - 0.5) * 6, life: 0.5 });
+    ctx.font = `700 ${Math.round(LANE * 0.34)}px system-ui, sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = x.mine ? "#ffd23f" : "#dfe4f7"; ctx.fillText(x.name.length > 11 ? x.name.slice(0, 10) + "…" : x.name, 8, y);
+    drawCar(cx, y, x.color, LANE / 38, x.mine);
+    if (x.f) { const place = order.findIndex((o) => o.id === x.id) + 1; ctx.fillStyle = "#ffd23f"; ctx.textAlign = "right"; ctx.fillText(`${ord(place)} · ${x.wpm} WPM`, cx - 30 * (LANE / 38), y); }
+  });
+  for (let i = puffs.length - 1; i >= 0; i--) { const p = puffs[i]; p.life -= dt; p.x -= 30 * dt; if (p.life <= 0) { puffs.splice(i, 1); continue; } ctx.fillStyle = `rgba(255,255,255,${p.life * 0.35})`; ctx.beginPath(); ctx.arc(p.x, p.y, 3 + (0.5 - p.life) * 8, 0, Math.PI * 2); ctx.fill(); }
+}
+/** A little top-down race car pointing right, centred on (x, y). */
+function drawCar(x, y, color, k, mine) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
+  ctx.fillStyle = "#0006"; round(-20, -9, 44, 22, 7); ctx.fill(); // shadow
+  ctx.fillStyle = "#111"; for (const [wx, wy] of [[-14, -12], [8, -12], [-14, 8], [8, 8]]) { round(wx, wy, 10, 5, 2); ctx.fill(); }
+  ctx.fillStyle = color; round(-22, -10, 46, 20, 8); ctx.fill();
+  ctx.fillStyle = "#ffffffcc"; ctx.fillRect(-20, -2, 42, 4); // racing stripe
+  ctx.fillStyle = "#1c2238"; round(2, -7, 10, 14, 3); ctx.fill(); // windshield
+  if (mine) { ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2.5; round(-24, -12, 50, 24, 9); ctx.stroke(); }
+  ctx.restore();
+}
+function round(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+/** The passage: done letters green, the current word bold, your cursor on the next letter (red after a wrong key). */
+function renderText(r) {
+  const text = passageOf(r), box = $("text"), racing = me.raceId === r.id;
+  const p = racing ? me.pos : 0, ws = text.lastIndexOf(" ", p - 1) + 1, we = (text.indexOf(" ", p) + 1 || text.length + 1) - 1;
+  box.classList.toggle("wait", !racing || r.phase === "count");
+  box.innerHTML = `<span class="done">${esc(text.slice(0, Math.min(p, ws)))}</span><span class="done word">${esc(text.slice(ws, p))}</span>` +
+    (p < text.length ? `<span class="cur${me.bad ? " bad" : ""}">${esc(text[p])}</span><span class="word">${esc(text.slice(p + 1, we))}</span>${esc(text.slice(we))}` : "");
+  const cur = box.querySelector(".cur"); // keep the cursor's line in view
+  box.scrollTop = cur ? Math.max(0, cur.offsetTop - box.offsetTop - parseFloat(getComputedStyle(box).lineHeight)) : box.scrollHeight;
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const ord = (n) => n + (n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th");
+const secs = (ms) => (ms / 1000).toFixed(1) + "s";
+let board = null, boardFor = -1;
+function hud(r, now) {
+  const t = Date.now(), racing = me.raceId === r.id, list = racers(r), place = ranked(list).findIndex((x) => x.mine) + 1;
+  $("count").textContent = r.phase === "count" ? (r.startAt - t < 3000 ? String(Math.max(1, Math.ceil((r.startAt - t) / 1000))) : "") : r.phase === "race" && me.goAt && now - me.goAt < 800 ? "GO!" : "";
+  $("status").textContent = r.phase === "count" ? (racing ? "Get ready: read ahead!" : "Next race soon") : r.phase === "race" ? (!racing ? "" : me.f ? `Finished ${ord(place)}!` : me.late && now - me.goAt < 4000 ? "Joined mid-race: your time starts now!" : `${ord(place)} of ${list.length} · ${Math.max(0, Math.ceil((r.endsAt - t) / 1000))}s`) : "Race over";
+  $("stats").innerHTML = racing ? `<div>${me.wpm}<span>WPM</span></div><div>${accuracy()}%<span>accuracy</span></div><div>${Math.round((100 * me.pos) / passageOf(r).length)}%<span>done</span></div>` : "";
+  $("tap").hidden = ATTRACT || !racing || r.phase === "done" || (phone ? tapped : document.activeElement === box);
+  if (ATTRACT) { $("net").textContent = ""; $("status").textContent = ""; return; }
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: racing bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the race" : ""}`;
+  $("over").hidden = r.phase !== "done";
+  if (r.phase === "done") {
+    const top = r.res[0], mine = r.res.find((x) => x[0] === net.sessionId);
+    $("winner").textContent = !top ? "Race over" : top[0] === net.sessionId ? "You win!" : `${top[1]} wins!`;
+    $("results").innerHTML = r.res.map(([id, name, wpm, f, pct]) => `<li class="${id === net.sessionId ? "me" : ""}">${esc(name)}<span>${f ? `${wpm} WPM · ${secs(f)}` : `${pct}%`}</span></li>`).join("");
+    $("again").textContent = me.ready === r.id ? "Waiting for the others…" : "Play again";
+    $("next").textContent = (mine && mine[3] ? `${mine[2]} WPM, ${accuracy()}% accuracy. ` : "") + `Next race in ${Math.max(0, Math.ceil((r.endsAt - t) / 1000))}s`;
+    if (boardFor !== r.id) { boardFor = r.id; showBoard(r); }
+  }
+}
+function showBoard(r) {
+  const list = $("board");
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li>Loading…</li>";
+  (me.raceId === r.id && me.f && me.submitted !== r.id ? board.submit(me.wpm).catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score} WPM</span></li>`).join("") : "<li>No races yet. Set the first.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+  me.submitted = r.id;
+}
+$("again").onclick = () => { const r = race(); if (r && r.phase === "done") { me.ready = r.id; net.me.set("rdy", r.id); } };
+
+// Sounds, made on the fly with WebAudio (no files).
+let audio = null;
+function unlockAudio() { if (!audio && !ATTRACT) try { audio = new AudioContext(); } catch {} } // browsers allow sound after a key or tap
+function sfx(kind) {
+  if (!audio) return;
+  const t = audio.currentTime, o = audio.createOscillator(), gain = audio.createGain();
+  const [type, f0, f1, len, vol] = { key: ["triangle", 1400, 900, 0.03, 0.05], miss: ["square", 160, 110, 0.12, 0.12], go: ["sine", 660, 990, 0.25, 0.25], finish: ["triangle", 520, 1300, 0.5, 0.25] }[kind];
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + len);
+  gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.001, t + len);
+  o.connect(gain).connect(audio.destination); o.start(t); o.stop(t + len + 0.02);
+}
+
+// ── INPUT ───────────────────────────────────────────────────────────────────────────
+const phone = matchMedia("(pointer: coarse)").matches;
+// A see-through text box covers the passage. It keeps the focus, so desktop keys land in it and a tap
+// on a phone opens the keyboard. Whatever arrives is checked letter by letter, then the box is emptied.
+const box = $("type");
+let tapped = false; // phones open their keyboard only for a real tap, so they wait for one
+function focusTyping() { if (!ATTRACT && !phone) try { box.focus({ preventScroll: true }); } catch {} }
+box.addEventListener("input", () => { unlockAudio(); const v = box.value; box.value = ""; for (const ch of v) typeChar(ch); });
+box.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+addEventListener("keydown", (e) => { if (document.activeElement !== box && e.key.length === 1 && !e.ctrlKey && !e.metaKey) focusTyping(); }); // the key itself lands in the box
+$("card").addEventListener("pointerdown", () => { unlockAudio(); tapped = true; try { box.focus({ preventScroll: true }); } catch {} });
+box.addEventListener("blur", () => { tapped = false; const r = race(); if (r && r.phase !== "done" && !phone) setTimeout(focusTyping, 0); });
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+let last = performance.now(), lastHb = 0, lastHud = 0, shownRace = "";
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
+  if (isHost()) hostTick(now); else host.wasHost = false;
+  const r = race();
+  if (r) {
+    myTick(r, now);
+    if (shownRace !== r.id + r.phase) { shownRace = r.id + r.phase; renderText(r); }
+    if (now - lastHud > 100) { lastHud = now; hud(r, now); }
+  }
+  drawTrack(r, dt);
+  requestAnimationFrame(frame);
+}
+/** Two players picked the same color at once (the joiner's first state can be empty): the later sessionId picks again. */
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId);
+  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId)) return;
+  const taken = new Set(others.map(([, p]) => p.c));
+  myColor = COLORS.find((c) => !taken.has(c)) || myColor; net.me.set("c", myColor);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c));
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  if (ATTRACT) Object.assign(CONFIG, { countdown: 1200, resultsMs: 2000, botWpm: [70, 115], seats: 6 });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

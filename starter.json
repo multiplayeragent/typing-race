@@ -1,0 +1,21 @@
+{
+  "name": "Typing Race",
+  "genre": "word",
+  "dim": "2D",
+  "mode": "Versus",
+  "players": "2–8",
+  "hook": "Type the passage. Your car moves as you type.",
+  "how": "Everyone types the same passage, and every right letter moves your car. A wrong key stops you until you type the right one. First to finish wins.",
+  "controls": "Keyboard, or your phone's keyboard",
+  "uses": [
+    ["Leaderboard", "Each player's best words per minute."],
+    ["Host-run rounds", "One player's browser picks the passage, counts down and posts the results; if it leaves, the next player takes over."],
+    ["Bots", "Typing bots race at different speeds, mistakes and all, until enough people join."],
+    ["Live sync", "Every car moves for everyone as its player types."]
+  ],
+  "ideas": [
+    "Use passages from famous books",
+    "Add a mode where you type code",
+    "Add a boost for 10 words without a mistake"
+  ]
+}
