@@ -36,6 +36,7 @@
   .card ol { margin: 0; padding-left: 24px; font-size: 14px; text-align: left; }
   .card li span { float: right; font-variant-numeric: tabular-nums; }
   .card li.me { color: var(--gold); font-weight: 700; }
+  .card li.note { list-style: none; opacity: .75; }
   .card p { margin: 10px 0 0; font-size: 13px; opacity: .8; }
   button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: var(--ok); color: #fff; font: 800 17px system-ui, sans-serif; cursor: pointer; }
 </style>
@@ -52,7 +53,7 @@
 <div id="count"></div>
 <div id="over" hidden><div class="card">
   <h2 id="winner"></h2><ol id="results"></ol>
-  <h3>Best words per minute</h3><ol id="board"><li>Loading…</li></ol>
+  <h3>Best words per minute</h3><ol id="board"><li class="note">Loading…</li></ol>
   <button class="go" id="again">Play again</button><p id="next"></p>
 </div></div>
 <script>
@@ -391,18 +392,18 @@ function hud(r, now) {
 }
 function showBoard(r) {
   const list = $("board");
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
-  list.innerHTML = "<li>Loading…</li>";
+  if (!board) { list.innerHTML = "<li class=\"note\">Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li class=\"note\">Loading…</li>";
   (me.raceId === r.id && me.f && me.submitted !== r.id ? board.submit(me.wpm).catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score} WPM</span></li>`).join("") : "<li>No races yet. Set the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score} WPM</span></li>`).join("") : "<li class=\"note\">No races yet. Set the first.</li>";
+  }).catch(() => { list.innerHTML = "<li class=\"note\">Couldn't load the leaderboard.</li>"; });
   me.submitted = r.id;
 }
 $("again").onclick = () => { const r = race(); if (r && r.phase === "done") { me.ready = r.id; net.me.set("rdy", r.id); } };
 
 // Sounds, made on the fly with WebAudio (no files).
 let audio = null;
-function unlockAudio() { if (!audio && !ATTRACT) try { audio = new AudioContext(); } catch {} } // browsers allow sound after a key or tap
+function unlockAudio() { if (audio && audio.state === "suspended") audio.resume().catch(() => {}); if (!audio && !ATTRACT) try { audio = new AudioContext(); } catch {} } // browsers allow sound after a key or tap
 function sfx(kind) {
   if (!audio) return;
   const t = audio.currentTime, o = audio.createOscillator(), gain = audio.createGain();
@@ -419,7 +420,19 @@ const phone = matchMedia("(pointer: coarse)").matches;
 const box = $("type");
 let tapped = false; // phones open their keyboard only for a real tap, so they wait for one
 function focusTyping() { if (!ATTRACT && !phone) try { box.focus({ preventScroll: true }); } catch {} }
-box.addEventListener("input", () => { unlockAudio(); const v = box.value; box.value = ""; for (const ch of v) typeChar(ch); });
+// Phone keyboards often build a word in place ("t", then "th", then "the") and only commit it at the
+// space: during that, only the letters that are new since last time are checked, and the box empties
+// once the word is committed. (Emptying it mid-word made the keyboard send the word again: misses.)
+let fed = "", composing = false;
+function feedBox() {
+  const v = box.value, fresh = v.startsWith(fed) ? v.slice(fed.length) : ""; // the keyboard rewrote its word: nothing new
+  fed = v;
+  for (const ch of fresh) typeChar(ch);
+  if (!composing) { box.value = ""; fed = ""; }
+}
+box.addEventListener("compositionstart", () => { composing = true; });
+box.addEventListener("compositionend", () => { composing = false; feedBox(); });
+box.addEventListener("input", () => { unlockAudio(); feedBox(); });
 box.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
 addEventListener("keydown", (e) => { if (document.activeElement !== box && e.key.length === 1 && !e.ctrlKey && !e.metaKey) focusTyping(); }); // the key itself lands in the box
 $("card").addEventListener("pointerdown", () => { unlockAudio(); tapped = true; try { box.focus({ preventScroll: true }); } catch {} });
